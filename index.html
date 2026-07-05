@@ -31,8 +31,9 @@
     }
 
     body {
-      width: 100vw;
+      width: 100%;
       min-height: 100vh;
+      min-height: 100svh;
       min-height: 100dvh;
       overflow: hidden;
       transform: translateZ(0);
@@ -47,6 +48,7 @@
       position: relative;
       width: 100%;
       height: 100vh;
+      height: 100svh;
       height: 100dvh;
       overflow: hidden;
       contain: layout paint style;
@@ -106,7 +108,7 @@
     @keyframes fall {
       0% {
         transform:
-          translate3d(0, -40px, 0)
+          translate3d(-50%, -40px, 0)
           rotate(0deg)
           scale(var(--scale));
         opacity: 0;
@@ -122,7 +124,7 @@
 
       100% {
         transform:
-          translate3d(0, calc(100dvh + 220px), 0)
+          translate3d(-50%, calc(100dvh + 220px), 0)
           rotate(var(--rotate))
           scale(var(--scale));
         opacity: 0;
@@ -147,6 +149,7 @@
       --text-color: #ffffff;
       letter-spacing: 0.04em;
       white-space: nowrap;
+      text-align: center;
       text-shadow:
         0 0 6px var(--text-color),
         0 0 14px var(--text-color);
@@ -437,6 +440,52 @@
       }
     }
 
+
+    /* Tối ưu riêng cho iPhone 14 Pro Max / màn 430px khi cầm dọc */
+    @media screen and (width: 430px) and (orientation: portrait) {
+      .scene {
+        height: 100dvh;
+      }
+
+      .intro-title {
+        font-size: 46px;
+        line-height: 1.08;
+        max-width: 92vw;
+      }
+
+      .intro-title::after {
+        font-size: 58px;
+        margin-top: 16px;
+      }
+
+      .music-toggle {
+        right: max(16px, var(--safe-right));
+        bottom: max(18px, var(--safe-bottom));
+      }
+    }
+
+    /* Các máy gần kích thước iPhone 14 Pro Max */
+    @media screen and (min-width: 414px) and (max-width: 460px) and (min-height: 820px) and (orientation: portrait) {
+      .intro-title {
+        max-width: 92vw;
+      }
+    }
+
+
+    .fall-item {
+      max-width: calc(100vw - 28px);
+    }
+
+    .small-text {
+      max-width: calc(100vw - 32px);
+      overflow: visible;
+    }
+
+    .photo {
+      max-width: min(var(--size), calc(100vw - 36px));
+      max-height: min(var(--size), calc(100dvh - 80px));
+    }
+
   </style>
 </head>
 
@@ -675,17 +724,64 @@
     function getResponsiveConfig() {
       const w = window.innerWidth;
       const h = window.innerHeight;
-      const shortSide = Math.min(w, h);
       const isMobile = w <= 768;
       const isSmallMobile = w <= 420;
+
+      /*
+        iPhone 14 Pro Max khi cầm dọc thường có viewport khoảng 430px x 932px.
+        Safari có thể làm chiều cao thay đổi do thanh địa chỉ,
+        nên bắt theo khoảng rộng 414–460px và chiều cao lớn.
+      */
+      const isIphone14ProMaxLike =
+        w >= 414 &&
+        w <= 460 &&
+        h >= 820 &&
+        window.matchMedia("(orientation: portrait)").matches;
+
+      if (isIphone14ProMaxLike) {
+        return {
+          isMobile: true,
+          isSmallMobile: false,
+          isIphone14ProMaxLike: true,
+
+          starLaneCount: 30,
+          itemLaneCount: 15,
+          starJitter: 0.08,
+          itemJitter: 0.03,
+
+          starInterval: 54,
+          itemInterval: 105,
+          textInterval: 112,
+          fireworkInterval: 1900,
+
+          heartSizeMin: 12,
+          heartSizeMax: 22,
+
+          textSizeMin: 11,
+          textSizeMax: 14,
+
+          photoSizeMin: 28,
+          photoSizeMax: 46,
+
+          fireworkScaleMin: 4.6,
+          fireworkScaleMax: 6.2,
+          particleCount: 52,
+
+          initialStars: 66,
+          initialItems: 34,
+          initialTexts: 26
+        };
+      }
 
       return {
         isMobile,
         isSmallMobile,
+        isIphone14ProMaxLike: false,
+
         starLaneCount: isMobile ? (isSmallMobile ? 24 : 28) : 42,
         itemLaneCount: isMobile ? (isSmallMobile ? 12 : 14) : 24,
         starJitter: isMobile ? 0.10 : 0.14,
-        itemJitter: isMobile ? 0.06 : 0.10,
+        itemJitter: isMobile ? 0.035 : 0.08,
 
         starInterval: isMobile ? 56 : 50,
         itemInterval: isMobile ? 110 : 95,
@@ -727,6 +823,27 @@
         clearTimeout(timer);
         timer = setTimeout(() => fn(...args), delay);
       };
+    }
+
+
+    function keepItemInsideViewport(item, preferredXPercent) {
+      const viewportWidth = window.innerWidth;
+      const padding = config.isIphone14ProMaxLike ? 18 : (config.isMobile ? 14 : 20);
+
+      // Đặt trước vị trí mong muốn để browser tính được kích thước thật.
+      item.style.left = preferredXPercent + "vw";
+
+      requestAnimationFrame(() => {
+        const rect = item.getBoundingClientRect();
+        const itemWidth = rect.width || 0;
+        const halfWidthPercent = ((itemWidth / 2 + padding) / viewportWidth) * 100;
+
+        const minX = Math.max(halfWidthPercent, 3);
+        const maxX = Math.min(100 - halfWidthPercent, 97);
+        const safeX = Math.min(Math.max(preferredXPercent, minX), maxX);
+
+        item.style.left = safeX + "vw";
+      });
     }
 
     function createStar() {
@@ -779,7 +896,8 @@
         item.style.setProperty("--rotate", "0deg");
       }
 
-      item.style.left = itemLanes.nextXPercent() + "vw";
+      const preferredX = itemLanes.nextXPercent();
+      keepItemInsideViewport(item, preferredX);
       item.style.setProperty("--duration", duration + "ms");
       item.style.setProperty("--scale", random(0.78, 1.22));
       item.style.setProperty("--opacity", random(0.68, 1));
@@ -795,7 +913,8 @@
       const duration = random(5600, 11000);
 
       item.textContent = randomItem(texts);
-      item.style.left = itemLanes.nextXPercent() + "vw";
+      const preferredX = itemLanes.nextXPercent();
+      keepItemInsideViewport(item, preferredX);
       item.style.setProperty("--size", random(config.textSizeMin, config.textSizeMax) + "px");
       item.style.setProperty("--text-color", randomItem(textColors));
       item.style.setProperty("--drift", "0px");
@@ -808,7 +927,7 @@
       removeAfterAnimation(item, duration);
     }
 
-    function createHeartFirework(x = random(18, 82), y = random(16, 55)) {
+    function createHeartFirework(x = random(18, 82), y = config.isIphone14ProMaxLike ? random(18, 48) : random(16, 55)) {
       const firework = document.createElement("div");
       firework.className = "firework";
       firework.style.setProperty("--x", x + "vw");
